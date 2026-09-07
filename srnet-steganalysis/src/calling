@@ -1,0 +1,4 @@
+source ~/SRNet/srnet-steganalysis-chatGPT5.6Sol-v2/srnet-steganalysis/.venv/bin/activate
+python3 -m src.train --data-root data --output-dir runs/experiment-BOSSbase-256x256-Hamming7-batch-size16-no-amp --batch-size 16 --no-amp
+python3 -m src.test --data-root data --checkpoint runs/srnet/best.pt
+python3 -m src.eval_epochs --data-root data --checkpoints-dir runs/srnet --spnlit val
