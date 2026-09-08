@@ -45,9 +45,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=1337)
+    parser.add_argument(
+        "--verify-checkpoint-test-set",
+        action="store_true",
+        help=(
+            "Require the evaluated pair names to match the original test set "
+            "recorded in the checkpoint. By default, external test sets are allowed."
+        ),
+    )
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--log-file", type=Path, default=None)
     return parser
+
+
+def verify_checkpoint_test_set(
+    checkpoint: object,
+    current_test_keys: Sequence[str],
+    required: bool,
+) -> None:
+    """Optionally require the current pairs to be the checkpoint's original test set."""
+    if not required or not isinstance(checkpoint, Mapping):
+        return
+    dataset_keys = checkpoint.get("dataset_keys")
+    if not isinstance(dataset_keys, Mapping):
+        return
+    saved_test_keys = list(dataset_keys.get("test", []))
+    if saved_test_keys and saved_test_keys != list(current_test_keys):
+        raise ValueError(
+            "Test data differs from the dataset recorded in the checkpoint. "
+            "Remove --verify-checkpoint-test-set to evaluate an external dataset."
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -77,11 +104,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     pairs = discover_pairs(data_root / args.test_split, args.cover_dir, args.stego_dir)
     checkpoint = load_torch_file(checkpoint_path)
-    if isinstance(checkpoint, Mapping) and "dataset_keys" in checkpoint:
-        saved_test_keys = list(checkpoint["dataset_keys"].get("test", []))
-        current_test_keys = [pair.key for pair in pairs]
-        if saved_test_keys and saved_test_keys != current_test_keys:
-            raise ValueError("Test data differs from the dataset recorded in the checkpoint.")
+    verify_checkpoint_test_set(
+        checkpoint,
+        [pair.key for pair in pairs],
+        required=args.verify_checkpoint_test_set,
+    )
 
     dataset = PairedImageDataset(pairs, image_size=args.image_size)
     loader = DataLoader(

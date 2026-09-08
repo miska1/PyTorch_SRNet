@@ -142,7 +142,8 @@ pickled objects.
 
 ## Standalone testing
 
-Evaluate one checkpoint on the predefined test dataset:
+Evaluate one checkpoint on `DATA_ROOT/TEST_SPLIT/cover` and
+`DATA_ROOT/TEST_SPLIT/stego`:
 
 ```bash
 python -m src.test \
@@ -151,7 +152,20 @@ python -m src.test \
 ```
 
 Results are written to `runs/srnet/standalone_test_metrics.json` and the console
-and file log.
+and file log. The standalone tester accepts any paired dataset; it does not need
+to be the test set that was present during training. For example:
+
+```bash
+python -m src.test \
+  --data-root /path/to/another-dataset \
+  --test-split test \
+  --checkpoint runs/srnet/best.pt \
+  --output runs/srnet/another_dataset_metrics.json
+```
+
+The external dataset must retain the paired `test/cover` and `test/stego`
+structure. Add `--verify-checkpoint-test-set` only when you intentionally want
+to require the original checkpoint test-set membership.
 
 ## Evaluate every epoch
 

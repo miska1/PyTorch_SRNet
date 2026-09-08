@@ -90,7 +90,6 @@ class SRNet(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        #initialization of weights
         for module in self.modules():
             if isinstance(module, nn.Conv2d):
                 nn.init.kaiming_normal_(module.weight, mode="fan_out", nonlinearity="relu")
