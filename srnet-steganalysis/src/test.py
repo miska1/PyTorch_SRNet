@@ -54,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument(
+        "--roc-output",
+        type=Path,
+        default=None,
+        help="ROC graph path (default: beside the metrics JSON).",
+    )
     parser.add_argument("--log-file", type=Path, default=None)
     return parser
 
@@ -89,6 +95,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.output.expanduser().resolve()
         if args.output is not None
         else checkpoint_path.parent / "standalone_test_metrics.json"
+    )
+    roc_output_path = (
+        args.roc_output.expanduser().resolve()
+        if args.roc_output is not None
+        else output_path.with_name(f"{output_path.stem}_roc_curve.png")
     )
     log_file = (
         args.log_file.expanduser().resolve()
@@ -135,15 +146,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         use_amp,
     )
     metrics = evaluate_model(
-        model, loader, criterion, device, use_amp, "TEST", epoch_label, logger
+        model,
+        loader,
+        criterion,
+        device,
+        use_amp,
+        "TEST",
+        epoch_label,
+        logger,
+        roc_curve_path=roc_output_path,
     )
     write_json(
         output_path,
-        {"checkpoint": str(checkpoint_path), "pairs": len(pairs), "test": metrics},
+        {
+            "checkpoint": str(checkpoint_path),
+            "pairs": len(pairs),
+            "roc_curve": str(roc_output_path),
+            "test": metrics,
+        },
     )
     logger.info(
-        "RUN complete metrics=%s duration=%s",
+        "RUN complete metrics=%s roc_curve=%s duration=%s",
         output_path,
+        roc_output_path,
         format_duration(time.perf_counter() - run_start),
     )
     return 0

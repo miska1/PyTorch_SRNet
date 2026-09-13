@@ -70,6 +70,9 @@ class ClassificationMeter:
         precision = safe_div(self.tp, self.tp + self.fp)
         recall = safe_div(self.tp, self.tp + self.fn)
         specificity = safe_div(self.tn, self.tn + self.fp)
+        false_alarm_rate = safe_div(self.fp, self.fp + self.tn)
+        missed_detection_rate = safe_div(self.fn, self.fn + self.tp)
+        detection_probability = recall
         f1 = safe_div(2.0 * precision * recall, precision + recall)
         return {
             "loss": self.loss_sum / self.count,
@@ -78,6 +81,9 @@ class ClassificationMeter:
             "precision": precision,
             "recall": recall,
             "specificity": specificity,
+            "false_alarm_rate": false_alarm_rate,
+            "missed_detection_rate": missed_detection_rate,
+            "detection_probability": detection_probability,
             "balanced_accuracy": 0.5 * (recall + specificity),
             "f1": f1,
             "tp": float(self.tp),
@@ -175,9 +181,89 @@ def format_metrics(metrics: Mapping[str, float]) -> str:
         f"loss={metrics['loss']:.6f} accuracy={metrics['accuracy']:.4f} "
         f"error_rate={metrics['error_rate']:.4f} f1={metrics['f1']:.4f} "
         f"balanced_accuracy={metrics['balanced_accuracy']:.4f} "
+        f"false_alarm_rate={metrics['false_alarm_rate']:.4f} "
+        f"missed_detection_rate={metrics['missed_detection_rate']:.4f} "
+        f"detection_probability={metrics['detection_probability']:.4f} "
         f"confusion=(tn={int(metrics['tn'])}, fp={int(metrics['fp'])}, "
         f"fn={int(metrics['fn'])}, tp={int(metrics['tp'])})"
     )
+
+
+def compute_binary_roc(
+    targets: Sequence[int], scores: Sequence[float]
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return false-positive rates, true-positive rates, and ROC-AUC."""
+    target_array = np.asarray(targets, dtype=np.int64)
+    score_array = np.asarray(scores, dtype=np.float64)
+    if target_array.ndim != 1 or score_array.ndim != 1:
+        raise ValueError("ROC targets and scores must be one-dimensional.")
+    if target_array.size == 0 or target_array.size != score_array.size:
+        raise ValueError("ROC targets and scores must have the same non-zero length.")
+    if not np.isin(target_array, [LABEL_COVER, LABEL_STEGO]).all():
+        raise ValueError("ROC targets must contain only cover (0) and stego (1) labels.")
+    if not np.isfinite(score_array).all():
+        raise ValueError("ROC scores must all be finite.")
+
+    positive_count = int((target_array == LABEL_STEGO).sum())
+    negative_count = int((target_array == LABEL_COVER).sum())
+    if positive_count == 0 or negative_count == 0:
+        raise ValueError("ROC-AUC requires at least one cover and one stego image.")
+
+    order = np.argsort(-score_array, kind="mergesort")
+    sorted_scores = score_array[order]
+    sorted_targets = target_array[order]
+    distinct_score_indices = np.where(np.diff(sorted_scores))[0]
+    threshold_indices = np.r_[distinct_score_indices, target_array.size - 1]
+    true_positives = np.cumsum(sorted_targets == LABEL_STEGO)[threshold_indices]
+    false_positives = (
+        1 + threshold_indices - true_positives
+    )
+    true_positive_rates = np.r_[0.0, true_positives / positive_count]
+    false_positive_rates = np.r_[0.0, false_positives / negative_count]
+    auc = float(
+        np.sum(
+            np.diff(false_positive_rates)
+            * (true_positive_rates[1:] + true_positive_rates[:-1])
+            * 0.5
+        )
+    )
+    return false_positive_rates, true_positive_rates, auc
+
+
+def save_roc_curve(
+    path: Path,
+    false_positive_rates: np.ndarray,
+    true_positive_rates: np.ndarray,
+    auc: float,
+) -> None:
+    """Save a publication-ready ROC curve using a non-interactive backend."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.stem}.tmp{path.suffix}")
+    figure, axis = plt.subplots(figsize=(7, 6))
+    axis.plot(
+        false_positive_rates,
+        true_positive_rates,
+        color="#1f4e79",
+        linewidth=2.0,
+        label=f"SRNet (AUC = {auc:.4f})",
+    )
+    axis.plot([0, 1], [0, 1], color="#666666", linestyle="--", linewidth=1.2)
+    axis.set_xlim(0.0, 1.0)
+    axis.set_ylim(0.0, 1.0)
+    axis.set_xlabel("False-alarm rate")
+    axis.set_ylabel("Detection probability")
+    axis.set_title("Receiver Operating Characteristic (ROC)")
+    axis.grid(True, linestyle=":", linewidth=0.7, alpha=0.7)
+    axis.legend(loc="lower right")
+    figure.tight_layout()
+    figure.savefig(temporary, dpi=300, bbox_inches="tight")
+    plt.close(figure)
+    os.replace(temporary, path)
 
 
 def configure_logging(log_file: Path, logger_name: str = "srnet") -> logging.Logger:
@@ -273,9 +359,12 @@ def evaluate_model(
     phase: str,
     epoch_label: str,
     logger: logging.Logger,
+    roc_curve_path: Path | None = None,
 ) -> dict[str, float]:
     model.eval()
     meter = ClassificationMeter()
+    roc_targets: list[int] = []
+    roc_scores: list[float] = []
     phase_start = time.perf_counter()
     for batch_number, (pair_images, pair_labels, _) in enumerate(loader, start=1):
         batch_start = time.perf_counter()
@@ -295,7 +384,13 @@ def evaluate_model(
             logits = model(images)
             loss = criterion(logits, labels)
         batch_loss = loss.detach().item()
-        meter.update(logits.detach().cpu(), labels.detach().cpu(), batch_loss)
+        cpu_logits = logits.detach().float().cpu()
+        cpu_labels = labels.detach().cpu()
+        meter.update(cpu_logits, cpu_labels, batch_loss)
+        if roc_curve_path is not None:
+            probabilities = torch.softmax(cpu_logits, dim=1)[:, LABEL_STEGO]
+            roc_targets.extend(int(value) for value in cpu_labels.tolist())
+            roc_scores.extend(float(value) for value in probabilities.tolist())
         logger.info(
             "%s batch complete epoch=%s batch=%d/%d loss=%.6f duration=%s",
             phase,
@@ -306,6 +401,15 @@ def evaluate_model(
             format_duration(time.perf_counter() - batch_start),
         )
     metrics = meter.compute()
+    if roc_curve_path is not None:
+        false_positive_rates, true_positive_rates, auc = compute_binary_roc(
+            roc_targets, roc_scores
+        )
+        save_roc_curve(
+            roc_curve_path, false_positive_rates, true_positive_rates, auc
+        )
+        metrics["roc_auc"] = auc
+        logger.info("%s ROC curve=%s auc=%.6f", phase, roc_curve_path, auc)
     logger.info(
         "%s complete epoch=%s %s duration=%s",
         phase,

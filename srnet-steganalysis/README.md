@@ -97,7 +97,8 @@ The trainer logs to both the console and `OUTPUT_DIR/training.log`:
 
 - timestamped start and completion of every epoch;
 - timestamped start and completion of every train/validation/test batch;
-- loss, accuracy, confusion counts, F1, balanced accuracy, and durations;
+- loss, accuracy, confusion counts, F1, balanced accuracy, false-alarm rate,
+  missed-detection rate, detection probability, and durations;
 - one-minute batch throughput and estimated epoch duration, starting after the
   first completed training batch.
 
@@ -152,7 +153,10 @@ python -m src.test \
 ```
 
 Results are written to `runs/srnet/standalone_test_metrics.json` and the console
-and file log. The standalone tester accepts any paired dataset; it does not need
+and file log. The JSON includes false-alarm rate, missed-detection rate,
+detection probability, and ROC-AUC. A 300-DPI ROC graph is written to
+`runs/srnet/standalone_test_metrics_roc_curve.png`. The standalone tester
+accepts any paired dataset; it does not need
 to be the test set that was present during training. For example:
 
 ```bash
@@ -160,12 +164,17 @@ python -m src.test \
   --data-root /path/to/another-dataset \
   --test-split test \
   --checkpoint runs/srnet/best.pt \
-  --output runs/srnet/another_dataset_metrics.json
+  --output runs/srnet/another_dataset_metrics.json \
+  --roc-output runs/srnet/another_dataset_roc.png
 ```
 
 The external dataset must retain the paired `test/cover` and `test/stego`
 structure. Add `--verify-checkpoint-test-set` only when you intentionally want
 to require the original checkpoint test-set membership.
+
+At the end of training, the same metrics are saved in `test_metrics.json`, and
+the test ROC graph is saved as `test_roc_curve.png` in the training output
+directory. Rates and probabilities are stored as proportions from 0 to 1.
 
 ## Evaluate every epoch
 

@@ -540,11 +540,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "TEST",
         str(last_completed_epoch),
         logger,
+        roc_curve_path=args.output_dir / "test_roc_curve.png",
     )
     write_json(
         args.output_dir / "test_metrics.json",
         {
             "test": test_metrics,
+            "roc_curve": str(args.output_dir / "test_roc_curve.png"),
             "best_validation_loss": best_val_loss,
             "last_completed_epoch": last_completed_epoch,
         },
