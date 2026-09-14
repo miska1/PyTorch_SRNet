@@ -150,14 +150,25 @@ pickled objects.
 
 ## Standalone testing
 
-Evaluate one checkpoint on `DATA_ROOT/TEST_SPLIT/cover` and
-`DATA_ROOT/TEST_SPLIT/stego`:
+Evaluate one checkpoint recursively on every paired group below `--data-root`:
 
 ```bash
 python -m src.test \
   --data-root data \
   --checkpoint runs/srnet/best.pt
 ```
+
+For the standard project layout, this combines all images from:
+
+```text
+data/test/cover/   data/test/stego/
+data/train/cover/  data/train/stego/
+data/val/cover/    data/val/stego/
+```
+
+The metrics JSON records every discovered group and its pair count. Pair keys
+are prefixed with their relative group path, so identical filenames in `train`,
+`val`, and `test` do not collide.
 
 Results are written to `runs/srnet/standalone_test_metrics.json` and the console
 and file log. The JSON includes false-alarm rate, missed-detection rate,
@@ -176,8 +187,22 @@ python -m src.test \
 ```
 
 The external dataset must retain the paired `test/cover` and `test/stego`
-structure. Add `--verify-checkpoint-test-set` only when you intentionally want
-to require the original checkpoint test-set membership.
+structure. To evaluate only one subdirectory instead of the complete recursive
+tree, pass it explicitly:
+
+```bash
+python -m src.test \
+  --data-root data \
+  --test-split test \
+  --checkpoint runs/srnet/best.pt
+```
+
+Add `--verify-checkpoint-test-set` only with the single original test split when
+you intentionally want to require its checkpoint-recorded membership.
+
+Combining `train`, `val`, and `test` is useful for diagnostics, but the combined
+result is not an unbiased held-out test measurement because the model has
+already learned from the training images and was selected using validation.
 
 At the end of training, the same metrics are saved in `test_metrics.json`, and
 the test ROC graph is saved as `test_roc_curve.png` in the training output

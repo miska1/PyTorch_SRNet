@@ -13,6 +13,7 @@ from src.datasets import (
     PairedImageDataset,
     discover_data_splits,
     discover_pairs,
+    discover_recursive_pairs,
     find_cross_split_cover_duplicates,
 )
 
@@ -59,6 +60,34 @@ class DatasetTests(unittest.TestCase):
             self.assertTrue(torch.equal(labels, torch.tensor([0, 1])))
             self.assertEqual(key, "sample")
             self.assertEqual(int((images[0] != images[1]).sum()), 1)
+
+    def test_recursive_discovery_combines_all_pair_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_pair(root / "train", "same_name", 5)
+            write_pair(root / "val", "same_name", 15)
+            write_pair(root / "test", "same_name", 25)
+            pairs, groups = discover_recursive_pairs(root)
+            self.assertEqual(groups, {"test": 1, "train": 1, "val": 1})
+            self.assertEqual(
+                [pair.key for pair in pairs],
+                ["test/same_name", "train/same_name", "val/same_name"],
+            )
+
+    def test_recursive_discovery_supports_a_direct_pair_group(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_pair(root, "sample", 5)
+            pairs, groups = discover_recursive_pairs(root)
+            self.assertEqual(groups, {".": 1})
+            self.assertEqual([pair.key for pair in pairs], ["sample"])
+
+    def test_recursive_discovery_rejects_an_incomplete_group(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "orphan" / "cover").mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, "without both cover and stego"):
+                discover_recursive_pairs(root)
 
     def test_rgb_channels_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -9,6 +9,7 @@ class StandaloneTestCliTests(unittest.TestCase):
     def test_external_test_sets_are_allowed_by_default(self) -> None:
         args = build_parser().parse_args(["--checkpoint", "best.pt"])
         self.assertFalse(args.verify_checkpoint_test_set)
+        self.assertIsNone(args.test_split)
 
     def test_checkpoint_test_set_verification_is_opt_in(self) -> None:
         args = build_parser().parse_args(
