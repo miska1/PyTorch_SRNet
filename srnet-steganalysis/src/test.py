@@ -17,7 +17,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     __package__ = "src"
 
-from .datasets import PairedImageDataset, discover_pairs
+from .datasets import PairedImageDataset, discover_recursive_pairs
 from .srnet import SRNet
 from .utils import (
     configure_logging,
@@ -33,10 +33,19 @@ from .utils import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Evaluate an SRNet checkpoint on data/test.")
+    parser = argparse.ArgumentParser(
+        description="Evaluate an SRNet checkpoint on all paired groups below a directory."
+    )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, default=Path("data"))
-    parser.add_argument("--test-split", default="test")
+    parser.add_argument(
+        "--test-split",
+        default=None,
+        help=(
+            "Optional single subdirectory below --data-root. Omit it to scan "
+            "--data-root recursively for every cover/stego group."
+        ),
+    )
     parser.add_argument("--cover-dir", default="cover")
     parser.add_argument("--stego-dir", default="stego")
     parser.add_argument("--image-size", type=int, default=256)
@@ -91,6 +100,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
     data_root = args.data_root.expanduser().resolve()
+    evaluation_root = (
+        (data_root / args.test_split).resolve()
+        if args.test_split is not None
+        else data_root
+    )
     output_path = (
         args.output.expanduser().resolve()
         if args.output is not None
@@ -113,7 +127,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     device = resolve_device(args.device)
     use_amp = bool(args.amp and device.type == "cuda")
 
-    pairs = discover_pairs(data_root / args.test_split, args.cover_dir, args.stego_dir)
+    pairs, group_counts = discover_recursive_pairs(
+        evaluation_root, args.cover_dir, args.stego_dir
+    )
     checkpoint = load_torch_file(checkpoint_path)
     verify_checkpoint_test_set(
         checkpoint,
@@ -139,9 +155,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         epoch_label = "weights"
     logger.info(
-        "TEST start checkpoint=%s pairs=%d device=%s amp=%s",
+        "TEST start checkpoint=%s root=%s groups=%d pairs=%d images=%d "
+        "device=%s amp=%s",
         checkpoint_path,
+        evaluation_root,
+        len(group_counts),
         len(pairs),
+        len(pairs) * 2,
         device,
         use_amp,
     )
@@ -160,6 +180,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_path,
         {
             "checkpoint": str(checkpoint_path),
+            "evaluation_root": str(evaluation_root),
+            "groups": [
+                {"relative_path": name, "pairs": count}
+                for name, count in group_counts.items()
+            ],
+            "images": len(pairs) * 2,
             "pairs": len(pairs),
             "roc_curve": str(roc_output_path),
             "test": metrics,

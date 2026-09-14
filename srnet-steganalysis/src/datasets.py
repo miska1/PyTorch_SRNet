@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,6 +84,61 @@ def discover_pairs(
             "relative name (extension may differ). " + "; ".join(details)
         )
     return [PairRecord(key, covers[key], stegos[key]) for key in sorted(covers)]
+
+
+def discover_recursive_pairs(
+    data_root: Path,
+    cover_dir: str = "cover",
+    stego_dir: str = "stego",
+) -> tuple[list[PairRecord], dict[str, int]]:
+    """Find every paired cover/stego group below a directory."""
+    if not data_root.is_dir():
+        raise FileNotFoundError(f"Evaluation directory does not exist: {data_root}")
+    if cover_dir == stego_dir:
+        raise ValueError("Cover and stego directory names must be different.")
+
+    group_roots: list[Path] = []
+    incomplete_groups: list[Path] = []
+    for current, directory_names, _ in os.walk(data_root):
+        directory_names.sort()
+        has_cover = cover_dir in directory_names
+        has_stego = stego_dir in directory_names
+        if has_cover and has_stego:
+            group_roots.append(Path(current))
+        elif has_cover or has_stego:
+            incomplete_groups.append(Path(current))
+        if has_cover or has_stego:
+            directory_names[:] = [
+                name for name in directory_names if name not in {cover_dir, stego_dir}
+            ]
+
+    if incomplete_groups:
+        examples = ", ".join(str(path) for path in incomplete_groups[:5])
+        raise ValueError(
+            "Found evaluation group(s) without both cover and stego directories: "
+            + examples
+        )
+    if not group_roots:
+        raise ValueError(
+            f"No directories containing both {cover_dir!r} and {stego_dir!r} "
+            f"were found under {data_root}."
+        )
+
+    combined: list[PairRecord] = []
+    group_counts: dict[str, int] = {}
+    seen_keys: set[str] = set()
+    for group_root in sorted(group_roots):
+        relative_group = group_root.relative_to(data_root)
+        group_name = "." if relative_group == Path(".") else relative_group.as_posix()
+        group_pairs = discover_pairs(group_root, cover_dir, stego_dir)
+        group_counts[group_name] = len(group_pairs)
+        for pair in group_pairs:
+            key = pair.key if group_name == "." else f"{group_name}/{pair.key}"
+            if key in seen_keys:
+                raise ValueError(f"Duplicate recursive pair key: {key}")
+            seen_keys.add(key)
+            combined.append(PairRecord(key, pair.cover_path, pair.stego_path))
+    return combined, group_counts
 
 
 def discover_data_splits(

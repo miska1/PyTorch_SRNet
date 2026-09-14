@@ -10,3 +10,4 @@ test/cover/   test/stego/
 
 Cover and stego images are paired by their relative path without the extension.
 All images must be 256x256 unless `--image-size` is intentionally changed.
+Images are converted to 8-bit grayscale tensors without resizing.
