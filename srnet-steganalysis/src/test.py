@@ -18,7 +18,7 @@ if __package__ in (None, ""):
     __package__ = "src"
 
 from .datasets import PairedImageDataset, discover_pairs
-from .srnet import SRNet
+from .srnet import RGB_CHANNELS, SRNet, validate_checkpoint_input_channels
 from .utils import (
     configure_logging,
     evaluate_model,
@@ -132,7 +132,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         persistent_workers=False,
     )
     model = SRNet().to(device)
-    model.load_state_dict(model_state_from_checkpoint(checkpoint))
+    model_state = model_state_from_checkpoint(checkpoint)
+    validate_checkpoint_input_channels(model_state)
+    model.load_state_dict(model_state)
     criterion = nn.CrossEntropyLoss()
     if isinstance(checkpoint, Mapping) and "next_epoch" in checkpoint:
         epoch_label = str(max(int(checkpoint["next_epoch"]) - 1, 0))
@@ -160,6 +162,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_path,
         {
             "checkpoint": str(checkpoint_path),
+            "color_mode": "RGB",
+            "input_channels": RGB_CHANNELS,
             "pairs": len(pairs),
             "roc_curve": str(roc_output_path),
             "test": metrics,

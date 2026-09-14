@@ -1,6 +1,6 @@
 # Dataset location
 
-Place the already-separated grayscale image pairs in:
+Place the already-separated RGB color image pairs in:
 
 ```text
 train/cover/  train/stego/
@@ -10,3 +10,4 @@ test/cover/   test/stego/
 
 Cover and stego images are paired by their relative path without the extension.
 All images must be 256x256 unless `--image-size` is intentionally changed.
+Images are decoded as 8-bit RGB tensors without resizing or color augmentation.

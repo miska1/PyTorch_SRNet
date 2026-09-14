@@ -143,7 +143,7 @@ def find_cross_split_cover_duplicates(
 
 
 class PairedImageDataset(Dataset[tuple[torch.Tensor, torch.Tensor, str]]):
-    """Return one cover/stego pair with an optional shared lossless transform."""
+    """Return one RGB cover/stego pair with an optional shared lossless transform."""
 
     def __init__(
         self,
@@ -172,8 +172,13 @@ class PairedImageDataset(Dataset[tuple[torch.Tensor, torch.Tensor, str]]):
                     f"{self.image_size}x{self.image_size}. Images are not resized "
                     "because interpolation can alter the stego signal."
                 )
-            pixels = np.asarray(image.convert("L"), dtype=np.float32).copy()
-        return torch.from_numpy(pixels).unsqueeze(0).div_(255.0).sub_(0.5)
+            pixels = np.asarray(image.convert("RGB"), dtype=np.float32).copy()
+        return (
+            torch.from_numpy(pixels)
+            .permute(2, 0, 1)
+            .div_(255.0)
+            .sub_(0.5)
+        )
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, str]:
         pair = self.pairs[index]

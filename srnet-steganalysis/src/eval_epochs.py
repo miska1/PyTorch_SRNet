@@ -19,7 +19,7 @@ if __package__ in (None, ""):
     __package__ = "src"
 
 from .datasets import PairedImageDataset, discover_pairs
-from .srnet import SRNet
+from .srnet import SRNet, validate_checkpoint_input_channels
 from .utils import (
     configure_logging,
     evaluate_model,
@@ -116,7 +116,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             saved_keys = list(checkpoint["dataset_keys"].get(args.split, []))
             if saved_keys and saved_keys != expected_keys:
                 raise ValueError(f"{checkpoint_path} was trained with different {args.split} data.")
-        model.load_state_dict(model_state_from_checkpoint(checkpoint))
+        model_state = model_state_from_checkpoint(checkpoint)
+        validate_checkpoint_input_channels(model_state)
+        model.load_state_dict(model_state)
         metrics = evaluate_model(
             model,
             loader,

@@ -1,10 +1,15 @@
-"""PyTorch implementation of the original 12-layer SRNet architecture."""
+"""PyTorch implementation of the 12-layer SRNet architecture for RGB input."""
 
 from __future__ import annotations
+
+from typing import Mapping
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+RGB_CHANNELS = 3
 
 
 def _conv3x3(in_channels: int, out_channels: int) -> nn.Conv2d:
@@ -72,11 +77,14 @@ class Type4(nn.Module):
 
 
 class SRNet(nn.Module):
-    """Classify one-channel images as cover (0) or stego (1)."""
+    """Classify RGB color images as cover (0) or stego (1)."""
 
-    def __init__(self, num_classes: int = 2) -> None:
+    def __init__(self, num_classes: int = 2, input_channels: int = RGB_CHANNELS) -> None:
         super().__init__()
-        self.layer1 = Type1(1, 64)
+        if input_channels < 1:
+            raise ValueError("input_channels must be positive")
+        self.input_channels = input_channels
+        self.layer1 = Type1(input_channels, 64)
         self.layer2 = Type1(64, 16)
         self.unpooled = nn.Sequential(*(Type2(16) for _ in range(5)))
         self.pooled = nn.Sequential(
@@ -108,3 +116,18 @@ class SRNet(nn.Module):
         features = self.pooled(features)
         features = self.layer12(features)
         return self.classifier(features)
+
+
+def validate_checkpoint_input_channels(
+    state_dict: Mapping[str, torch.Tensor], expected: int = RGB_CHANNELS
+) -> None:
+    """Reject checkpoints whose first convolution expects another channel count."""
+    first_weight = state_dict.get("layer1.conv.weight")
+    if first_weight is None or first_weight.ndim != 4:
+        return
+    actual = int(first_weight.shape[1])
+    if actual != expected:
+        raise ValueError(
+            f"Checkpoint expects {actual} input channel(s), but this RGB project "
+            f"requires {expected}. Train a new color model in a new output directory."
+        )

@@ -27,7 +27,7 @@ from .datasets import (
     pair_keys_by_split,
     verify_saved_pair_keys,
 )
-from .srnet import SRNet
+from .srnet import RGB_CHANNELS, SRNet, validate_checkpoint_input_channels
 from .utils import (
     ClassificationMeter,
     MinuteProgressReporter,
@@ -173,8 +173,10 @@ def checkpoint_payload(
     validation_metrics: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     return {
-        "format_version": 2,
+        "format_version": 3,
         "model_name": "SRNet",
+        "color_mode": "RGB",
+        "input_channels": RGB_CHANNELS,
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
         "scheduler_state": scheduler.state_dict(),
@@ -308,12 +310,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     dataset_keys = pair_keys_by_split(splits)
     logger.info(
-        "DATA train_pairs=%d val_pairs=%d test_pairs=%d image_size=%dx%d",
+        "DATA train_pairs=%d val_pairs=%d test_pairs=%d image_size=%dx%d "
+        "color_mode=RGB channels=%d",
         len(splits["train"]),
         len(splits["val"]),
         len(splits["test"]),
         args.image_size,
         args.image_size,
+        RGB_CHANNELS,
     )
     if args.check_split_overlap:
         logger.info("DATA split-overlap check start")
@@ -366,7 +370,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     best_val_loss = math.inf
     no_improvement_epochs = 0
     if resume_value is not None:
-        model.load_state_dict(model_state_from_checkpoint(resume_value))
+        resume_model_state = model_state_from_checkpoint(resume_value)
+        validate_checkpoint_input_channels(resume_model_state)
+        model.load_state_dict(resume_model_state)
         if isinstance(resume_value, Mapping) and "model_state" in resume_value:
             optimizer.load_state_dict(resume_value["optimizer_state"])
             scheduler.load_state_dict(resume_value["scheduler_state"])
@@ -529,7 +535,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     best_path = args.output_dir / "best.pt"
     if best_path.is_file():
         best_checkpoint = load_torch_file(best_path)
-        model.load_state_dict(model_state_from_checkpoint(best_checkpoint))
+        best_model_state = model_state_from_checkpoint(best_checkpoint)
+        validate_checkpoint_input_channels(best_model_state)
+        model.load_state_dict(best_model_state)
         logger.info("TEST using_best_checkpoint=%s", best_path)
     test_metrics = evaluate_model(
         model,
@@ -546,6 +554,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.output_dir / "test_metrics.json",
         {
             "test": test_metrics,
+            "color_mode": "RGB",
+            "input_channels": RGB_CHANNELS,
             "roc_curve": str(args.output_dir / "test_roc_curve.png"),
             "best_validation_loss": best_val_loss,
             "last_completed_epoch": last_completed_epoch,

@@ -1,8 +1,8 @@
 # SRNet paired steganalysis trainer
 
-PyTorch training, validation, and testing for the original 12-layer SRNet
-architecture. Input images are grayscale 256x256 cover/stego pairs that are
-already separated into training, validation, and test datasets.
+PyTorch training, validation, and testing for the 12-layer SRNet architecture
+adapted to three-channel RGB input. Images are 256x256 color cover/stego pairs
+that are already separated into training, validation, and test datasets.
 
 ## Project layout
 
@@ -29,6 +29,7 @@ srnet-steganalysis/
 ├── tests/
 │   ├── test_datasets.py
 │   ├── test_srnet.py
+│   ├── test_test_cli.py
 │   └── test_utils.py
 ├── README.md
 └── requirements.txt
@@ -47,9 +48,10 @@ data/train/cover/camera_a/000001.png
 data/train/stego/camera_a/000001.tif
 ```
 
-Every cover must have exactly one matching stego image. Images are converted to
-one channel but never resized, because interpolation can alter the weak stego
-signal. `--batch-size 8` means 8 pairs and therefore 16 images.
+Every cover must have exactly one matching stego image. Images are decoded as
+8-bit RGB tensors and normalized to `[-0.5, 0.5]`, but never resized, because
+interpolation can alter the weak stego signal. `--batch-size 8` means 8 pairs
+and therefore 16 RGB images.
 
 ## Install
 
@@ -119,7 +121,12 @@ runs/srnet/best.pt
 
 Full checkpoints include model, optimizer, scheduler, AMP scaler, early-
 stopping state, RNG state, next batch position, configuration, and exact pair
-keys for all predefined datasets.
+keys for all predefined datasets. They also record `color_mode=RGB` and
+`input_channels=3`.
+
+Grayscale checkpoints from the earlier one-channel project are not compatible
+with the RGB first convolution. Start color training in a new output directory;
+the commands report a clear error if a one-channel checkpoint is selected.
 
 Press **Ctrl+C** once during training. The program writes
 `runs/srnet/interrupted.pt`. Resume from it with:
@@ -197,11 +204,14 @@ tuning the model because it turns the test set into another validation set.
 python -m unittest discover -s tests -v
 ```
 
-The tests cover split discovery, pair matching, shared pair augmentation,
-duplicate detection, resumable shuffling, metrics, and SRNet output shape.
+The tests cover RGB channel preservation, split discovery, pair matching,
+shared pair augmentation, duplicate detection, resumable shuffling, metrics,
+checkpoint channel validation, and SRNet output shape.
 
 ## Architecture reference
 
-The model follows M. Boroumand, M. Chen, and J. Fridrich, “Deep Residual Network
-for Steganalysis of Digital Images,” *IEEE Transactions on Information
-Forensics and Security*, 14(5), 2019. The model is isolated in `src/srnet.py`.
+The residual topology follows M. Boroumand, M. Chen, and J. Fridrich, “Deep
+Residual Network for Steganalysis of Digital Images,” *IEEE Transactions on
+Information Forensics and Security*, 14(5), 2019. This project changes the
+original one-channel input convolution to accept RGB channels jointly. The
+model is isolated in `src/srnet.py`.

@@ -20,11 +20,14 @@ from src.datasets import (
 def write_pair(split_root: Path, name: str, value: int) -> None:
     (split_root / "cover").mkdir(parents=True, exist_ok=True)
     (split_root / "stego").mkdir(parents=True, exist_ok=True)
-    cover = np.full((32, 32), value, dtype=np.uint8)
+    cover = np.empty((32, 32, 3), dtype=np.uint8)
+    cover[..., 0] = value
+    cover[..., 1] = value + 40
+    cover[..., 2] = value + 80
     stego = cover.copy()
-    stego[value % 32, (value * 3) % 32] ^= 1
-    Image.fromarray(cover, mode="L").save(split_root / "cover" / f"{name}.png")
-    Image.fromarray(stego, mode="L").save(split_root / "stego" / f"{name}.png")
+    stego[value % 32, (value * 3) % 32, 1] ^= 1
+    Image.fromarray(cover).save(split_root / "cover" / f"{name}.png")
+    Image.fromarray(stego).save(split_root / "stego" / f"{name}.png")
 
 
 class DatasetTests(unittest.TestCase):
@@ -52,16 +55,25 @@ class DatasetTests(unittest.TestCase):
             )
             dataset.set_epoch(3)
             images, labels, key = dataset[0]
-            self.assertEqual(images.shape, (2, 1, 32, 32))
+            self.assertEqual(images.shape, (2, 3, 32, 32))
             self.assertTrue(torch.equal(labels, torch.tensor([0, 1])))
             self.assertEqual(key, "sample")
             self.assertEqual(int((images[0] != images[1]).sum()), 1)
+
+    def test_rgb_channels_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            split_root = Path(temporary) / "train"
+            write_pair(split_root, "sample", 7)
+            dataset = PairedImageDataset(discover_pairs(split_root), image_size=32)
+            images, _, _ = dataset[0]
+            expected = torch.tensor([7.0, 47.0, 87.0]).div(255.0).sub(0.5)
+            self.assertTrue(torch.allclose(images[0, :, 0, 0], expected))
 
     def test_missing_pair_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             split_root = Path(temporary) / "train"
             write_pair(split_root, "complete", 1)
-            Image.fromarray(np.zeros((32, 32), dtype=np.uint8), mode="L").save(
+            Image.fromarray(np.zeros((32, 32, 3), dtype=np.uint8)).save(
                 split_root / "cover" / "unmatched.png"
             )
             with self.assertRaisesRegex(ValueError, "cover-only"):
